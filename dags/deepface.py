@@ -126,7 +126,7 @@ def process_attendee(not_verified, attendee):
 def _validate():
     client = MongoClient(Variable.get("MONGO_URL"))
     global db
-    db = client["myFirstDatabase"]
+    db = client["test"]
     col_attendances = db["attendances"]
     not_verified = {}
     threads = []
