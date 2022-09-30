@@ -81,3 +81,9 @@ Para agregar variables de entorno, acceder a la UI de Apache Airflow, y desde el
 
 ### Más info
 https://airflow.apache.org/docs/apache-airflow/stable/howto/variable.html
+
+### Concurrencia con PyMongo
+- En MongoClient se puede especificar el maxPoolSize (es el numero de conexiones que permite en paralelo, default = 100). Cada hilo va a utilizar una de estas conexiones.
+- Las operaciones de pymongo son thread-safe.
+Explicación + ejemplo: https://pythontic.com/database/mongodb/insert%20into%20a%20collection
+Documentación de PyMongo: https://pymongo.readthedocs.io/en/stable/faq.html#is-pymongo-thread-safe

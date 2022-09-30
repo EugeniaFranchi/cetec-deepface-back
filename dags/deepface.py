@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pymongo import MongoClient
 from deepface import DeepFace
 import smtplib
+import threading
 
 import smtplib
 from email.message import EmailMessage
@@ -84,48 +85,60 @@ def notify_unvalidated(not_verified):
 
             print ("Something went wrong….",ex)
 
-def _validate():
-    client = MongoClient(Variable.get("MONGO_URL"))
-    db = client["test"]
+def process_attendee(not_verified, attendee):
     col_attendances = db["attendances"]
     col_students = db["students"]
     col_exams = db["exams"]
+    student = col_students.find_one({'email':attendee['email']})
+    
+    if not student:
+        return
+
+    exam = find_exam(col_exams, attendee['course'], attendee['date'], EXAM_DATE_MINUTES_MARGIN)
+    if not exam:
+        return
+
+    if not is_same_person(attendee['image'], student['image']):
+        info = (student['name'], student['email'])
+        if exam['email'] not in not_verified.keys():
+            not_verified[exam['email']] = []
+        not_verified[exam['email']].append(info)
+        col_attendances.delete_one({'_id':attendee['_id']})
+        return
+
+    state = ''
+    if is_on_time(attendee['date'], exam['start']):
+        state = PRESENT
+    elif is_late(attendee['date'], exam['start'], exam['startMinutesMargin']):
+        state = LATE
+    else:
+        col_attendances.delete_one({'_id':attendee['_id']})
+        return
+
+    newAttendance = {'date':attendee['date'], 'course':attendee['course'], 'state':state}
+    col_students.find_one_and_update(
+        { 'email': attendee['email'] },
+        { '$push': { 'attendances': newAttendance } },
+        { 'upsert': True }
+    )
+    col_attendances.delete_one({'_id':attendee['_id']})
+
+def _validate():
+    client = MongoClient(Variable.get("MONGO_URL"))
+    global db
+    db = client["myFirstDatabase"]
+    col_attendances = db["attendances"]
     not_verified = {}
+    threads = []
 
     attendees = col_attendances.find()
     for attendee in attendees:
-        student = col_students.find_one({'email':attendee['email']})
-        if not student:
-            continue
+        thread = threading.Thread(target=process_attendee, args=(not_verified, attendee))
+        thread.start()
+        threads.append(thread)
 
-        exam = find_exam(col_exams, attendee['course'], attendee['date'], EXAM_DATE_MINUTES_MARGIN)
-        if not exam:
-            continue
-
-        if not is_same_person(attendee['image'], student['image']):
-            info = (student['name'], student['email'])
-            if exam['email'] not in not_verified.keys():
-                not_verified[exam['email']] = []
-            not_verified[exam['email']].append(info)
-            col_attendances.delete_one({'_id':attendee['_id']})
-            continue
-
-        state = ''
-        if is_on_time(attendee['date'], exam['start']):
-            state = PRESENT
-        elif is_late(attendee['date'], exam['start'], exam['startMinutesMargin']):
-            state = LATE
-        else:
-            col_attendances.delete_one({'_id':attendee['_id']})
-            continue
-
-        newAttendance = {'date':attendee['date'], 'course':attendee['course'], 'state':state}
-        col_students.find_one_and_update(
-            { 'email': attendee['email'] },
-            { '$push': { 'attendances': newAttendance } },
-            { 'upsert': True }
-        )
-        col_attendances.delete_one({'_id':attendee['_id']})
+    for thread in threads:
+        thread.join()
 
     notify_unvalidated(not_verified)
 
